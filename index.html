@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Aegis Serverless is a client-side face recognition attendance system powered by TensorFlow.js and IndexedDB, hosted directly on GitHub Pages.">
+    <title>Aegis - Serverless Face Attendance</title>
+    <!-- Google Fonts: Outfit & Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome for Premium Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- CDNs for Serverless face recognition & Excel processing -->
+    <!-- We use Vlad Mandic's optimized face-api.js build -->
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
+    <!-- ExcelJS for styling excels in client browser -->
+    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
+    
+    <!-- Custom Glassmorphic Styling -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="background-radial-glow"></div>
+
+    <!-- LOADING PROGRESS BAR (Initially Hidden) -->
+    <div id="loading-progress-container" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(5, 7, 12, 0.95); backdrop-filter: blur(25px); z-index: 2000; display: flex; align-items: center; justify-content: center;">
+        <div style="text-align: center; color: #f3f4f6;">
+            <div style="margin-bottom: 2rem;">
+                <i class="fa-solid fa-spinner" style="font-size: 3rem; animation: spin 1s linear infinite; background: linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;"></i>
+            </div>
+            <h2 style="font-family: 'Outfit', sans-serif; font-size: 1.5rem; margin-bottom: 0.5rem; font-weight: 600;">Loading Face Engine</h2>
+            <p id="loading-progress-text" style="color: #9ca3af; margin-bottom: 1.5rem; font-size: 0.9rem;">Initializing neural networks...</p>
+            <div style="width: 300px; height: 8px; background: rgba(255,255,255,0.1); border-radius: 50px; overflow: hidden; margin: 0 auto;">
+                <div id="loading-progress-bar" style="height: 100%; width: 0%; background: linear-gradient(90deg, #0ea5e9 0%, #06b6d4 100%); transition: width 0.3s ease; border-radius: 50px;"></div>
+            </div>
+            <p style="font-size: 0.8rem; color: #6b7280; margin-top: 1rem;">This may take 30-60 seconds on first load...</p>
+        </div>
+    </div>
+
+    <!-- PASSCODE GATE (LOGIN / SETUP PANEL) -->
+    <div class="login-overlay" id="login-panel">
+        <div class="card glass-card login-card">
+            <div class="login-brand">
+                <i class="fa-solid fa-user-shield login-icon"></i>
+                <h2 id="login-header-title">AEGIS SECURE</h2>
+                <p id="login-header-desc">Authorized Attendance Portal</p>
+            </div>
+            
+            <!-- Standard Login View -->
+            <div id="login-view">
+                <div class="form-group">
+                    <label for="passcode-input"><i class="fa-solid fa-key"></i> Enter Passcode</label>
+                    <input type="password" id="passcode-input" placeholder="••••" autocomplete="current-password">
+                    <span class="error-msg" id="login-error" style="display: none;">Invalid passcode. Please try again.</span>
+                </div>
+                <button id="btn-login" class="btn btn-primary btn-glow" style="margin-top: 1rem;">
+                    <i class="fa-solid fa-lock-open"></i> Access System
+                </button>
+            </div>
+
+            <!-- First-Time Setup View -->
+            <div id="setup-view" style="display: none;">
+                <p class="modal-tip" style="margin-bottom: 1.5rem; text-align: left;">
+                    <i class="fa-solid fa-circle-info"></i> <strong>First-Time Setup:</strong> Create a passcode to encrypt and protect your attendance log database.
+                </p>
+                <div class="form-group">
+                    <label for="new-passcode"><i class="fa-solid fa-lock"></i> New Passcode</label>
+                    <input type="password" id="new-passcode" placeholder="Create passcode..." autocomplete="new-password">
+                </div>
+                <div class="form-group" style="margin-top: 0.75rem;">
+                    <label for="confirm-passcode"><i class="fa-solid fa-circle-check"></i> Confirm Passcode</label>
+                    <input type="password" id="confirm-passcode" placeholder="Verify passcode..." autocomplete="new-password">
+                    <span class="error-msg" id="setup-error" style="display: none;">Passcodes do not match. Please verify.</span>
+                </div>
+                <button id="btn-setup" class="btn btn-primary btn-glow" style="margin-top: 1.25rem;">
+                    <i class="fa-solid fa-floppy-disk"></i> Save & Open App
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN DASHBOARD (Initially Hidden) -->
+    <div class="app-layout" id="app-dashboard" style="display: none;">
+        <header class="main-header">
+            <div class="brand">
+                <i class="fa-solid fa-user-shield brand-icon"></i>
+                <div class="brand-text">
+                    <h1 id="app-title">AEGIS</h1>
+                    <span>Serverless Face Attendance</span>
+                </div>
+            </div>
+            <div class="header-status">
+                <button id="btn-logout" class="btn-logout-icon" title="Lock System">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                </button>
+                <span class="pulse-indicator-label" id="model-status">Loading Face Engine...</span>
+                <div class="pulse-indicator warning" id="status-pulse"></div>
+            </div>
+        </header>
+
+        <main class="dashboard-container">
+            <!-- LEFT COLUMN: Control & Camera Stream -->
+            <section class="panel-column left-column">
+                <!-- SETUP & CONFIG CARD -->
+                <div class="card glass-card config-card">
+                    <h2 class="card-title"><i class="fa-solid fa-sliders text-gradient"></i> Configuration</h2>
+                    
+                    <div class="form-group">
+                        <label for="class-input"><i class="fa-solid fa-graduation-cap"></i> Class Name</label>
+                        <div class="input-autocomplete-container">
+                            <input type="text" id="class-input" list="classes-datalist" placeholder="Type or select class..." required autocomplete="off">
+                            <datalist id="classes-datalist">
+                                <option value="Class 10-A">
+                                <option value="Class 11-B">
+                                <option value="Class 12-C">
+                                <option value="Science Division">
+                                <option value="Arts & Humanities">
+                            </datalist>
+                        </div>
+                    </div>
+
+                    <div class="form-group" style="margin-top: 1.25rem;">
+                        <label for="tolerance-slider">
+                            <i class="fa-solid fa-gauge-high"></i> Face Match Tolerance: <span id="tolerance-val">0.48</span>
+                        </label>
+                        <div class="slider-wrapper">
+                            <input type="range" id="tolerance-slider" min="0.35" max="0.65" step="0.01" value="0.48" class="range-slider">
+                            <div class="slider-labels">
+                                <span>Strict (Accurate)</span>
+                                <span>Lenient (Easy)</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="voice-toggle-container">
+                        <label for="voice-announcer-toggle" class="switch-label">
+                            <i class="fa-solid fa-volume-high"></i> Voice Announcer
+                        </label>
+                        <label class="switch">
+                            <input type="checkbox" id="voice-announcer-toggle" checked>
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- WEBCAM VIEWPORT CARD -->
+                <div class="card glass-card camera-card">
+                    <div class="camera-header">
+                        <h2 class="card-title"><i class="fa-solid fa-video text-gradient"></i> Camera Viewfinder</h2>
+                        <span id="camera-status" class="status-badge offline">Offline</span>
+                    </div>
+                    
+                    <div class="viewport-wrapper">
+                        <!-- Laser Scanner Line Overlay -->
+                        <div class="scanner-laser" id="scanner-laser" style="display: none;"></div>
+                        
+                        <video id="webcam" autoplay playsinline muted></video>
+                        <canvas id="overlay-canvas"></canvas>
+                        
+                        <div class="viewport-placeholder" id="viewport-placeholder">
+                            <i class="fa-solid fa-camera-retro placeholder-icon"></i>
+                            <p>Camera is currently offline.</p>
+                            <p class="sub-text">Please type a class and click "Start Camera" below.</p>
+                        </div>
+                    </div>
+                    
+                    <div class="camera-actions">
+                        <button id="btn-start-camera" class="btn btn-primary-outline btn-glow">
+                            <i class="fa-solid fa-power-off"></i> Start Camera
+                        </button>
+                        <button id="btn-take-attendance" class="btn btn-primary btn-glow" disabled>
+                            <i class="fa-solid fa-id-card-clip"></i> Take Attendance
+                        </button>
+                        <button id="btn-stop-camera" class="btn btn-danger btn-glow" style="display: none;">
+                            <i class="fa-solid fa-video-slash"></i> Stop Camera
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- RIGHT COLUMN: Realtime Log & Export Excel -->
+            <section class="panel-column right-column">
+                <!-- NOTIFICATION & SCANNER STATUS -->
+                <div class="card glass-card status-card" id="status-display-panel">
+                    <h2 class="card-title"><i class="fa-solid fa-circle-info text-gradient"></i> Scanner Status</h2>
+                    <div class="status-content" id="scanner-info-box">
+                        <div class="info-icon-container">
+                            <i class="fa-solid fa-shield-halved waiting-icon"></i>
+                        </div>
+                        <div class="info-details">
+                            <h3 id="status-title">Face Engine Inactive</h3>
+                            <p id="status-desc">Wait for the face models to download. Once ready, select a class and activate scanning.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TODAY'S ATTENDANCE LOG -->
+                <div class="card glass-card log-card">
+                    <div class="log-header">
+                        <h2 class="card-title"><i class="fa-solid fa-list-check text-gradient"></i> Live Roll Call (<span id="log-count">0</span>)</h2>
+                        <span id="log-class-tag" class="class-tag">No Class</span>
+                    </div>
+                    
+                    <div class="log-table-container">
+                        <table id="attendance-table">
+                            <thead>
+                                <tr>
+                                    <th>Student Name</th>
+                                    <th>Timestamp</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="attendance-log-body">
+                                <tr class="empty-row">
+                                    <td colspan="3">
+                                        <div class="empty-state">
+                                            <i class="fa-solid fa-clipboard-question empty-icon"></i>
+                                            <p>No attendance marked yet today.</p>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- REPORT & DATA STORAGE PANEL -->
+                <div class="card glass-card report-card">
+                    <h2 class="card-title"><i class="fa-solid fa-database text-gradient"></i> Data Management</h2>
+                    <p class="card-subtitle">Generate reports directly in the browser, or backup your IndexedDB data folder to avoid storage loss.</p>
+                    
+                    <div class="report-controls">
+                        <div class="form-group flex-1">
+                            <label for="report-range"><i class="fa-solid fa-calendar-days"></i> Period</label>
+                            <div class="select-container">
+                                <select id="report-range">
+                                    <option value="all_time">All-Time Log</option>
+                                    <option value="this_week">Past 7 Days</option>
+                                    <option value="this_month">Past 30 Days</option>
+                                </select>
+                                <i class="fa-solid fa-chevron-down select-arrow"></i>
+                            </div>
+                        </div>
+                        
+                        <button id="btn-export-excel" class="btn btn-success btn-glow">
+                            <i class="fa-solid fa-download"></i> Export Excel
+                        </button>
+                    </div>
+
+                    <div class="data-backup-row">
+                        <button id="btn-backup-db" class="btn btn-secondary-outline">
+                            <i class="fa-solid fa-file-export"></i> Backup Database
+                        </button>
+                        <button id="btn-restore-db" class="btn btn-secondary-outline">
+                            <i class="fa-solid fa-file-import"></i> Restore Database
+                        </button>
+                        <input type="file" id="restore-file-input" style="display: none;" accept=".json">
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- MODAL: REGISTRATION OF NEW FACE -->
+    <div class="modal-backdrop" id="register-modal">
+        <div class="modal-card glass-modal">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-user-plus text-gradient"></i> Unrecognized Face</h2>
+                <button class="btn-close" id="btn-close-modal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body">
+                <p>An unknown face has been detected. To enroll this student and record their attendance for today, please enter their full name below.</p>
+                <p class="modal-tip"><i class="fa-solid fa-circle-info text-gradient"></i> <strong>Accuracy Tip:</strong> Ensure the student is looking directly at the camera with clear lighting.</p>
+                
+                <div class="face-preview-wrapper">
+                    <canvas id="face-crop-canvas"></canvas>
+                    <div class="preview-caption">Captured Facial Template</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="student-name-input"><i class="fa-solid fa-user-pen"></i> Student Full Name</label>
+                    <input type="text" id="student-name-input" placeholder="e.g. Johnathan Doe" autocomplete="off" required>
+                    <span class="error-msg" id="name-error" style="display: none;">Please enter a valid student name.</span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="btn-cancel-register" class="btn btn-secondary-outline">Cancel</button>
+                <button id="btn-submit-register" class="btn btn-primary">
+                    <i class="fa-solid fa-floppy-disk"></i> Register & Mark Present
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Serverless Client Script -->
+    <script src="app.js"></script>
+    <style>
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</body>
+</html>
